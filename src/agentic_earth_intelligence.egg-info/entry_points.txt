@@ -1,2 +1,0 @@
-[console_scripts]
-agentic-earth = agentic_earth.cli:main

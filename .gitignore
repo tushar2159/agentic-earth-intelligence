@@ -1,5 +1,6 @@
 __pycache__/
 *.py[cod]
+*.egg-info/
 .venv/
 .pytest_cache/
 .ruff_cache/
@@ -10,4 +11,3 @@ runs/
 frontend/node_modules/
 frontend/dist/
 .DS_Store
-
