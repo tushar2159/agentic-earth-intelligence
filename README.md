@@ -6,7 +6,7 @@
 
 Natural-language planning and traceable Earth-observation analysis built around the public Element 84 Earth Search STAC API. The application combines explicit workflow state, deterministic spatial services, a FastAPI boundary, and a React/MapLibre dashboard.
 
-**[Open the live dashboard](https://tushar2159.github.io/agentic-earth-intelligence/)** · The hosted static showcase performs real Earth Search queries in the browser; run the containers for the complete FastAPI workflow.
+**[Open the live dashboard](https://tushar2159.github.io/agentic-earth-intelligence/)** · The hosted showcase automatically performs a real Earth Search query, displays returned scene footprints over an XYZ satellite basemap, and supports rerunning the prompt. Run the containers for the complete FastAPI workflow.
 
 > **Implemented scope:** request planning, live STAC search, scene parsing/ranking, execution traces, metadata reporting, array-based change statistics, interactive map UI, containers, tests, and CI. Pixel-level COG compositing and LLM-provider integration are documented extensions—not implied existing behavior.
 

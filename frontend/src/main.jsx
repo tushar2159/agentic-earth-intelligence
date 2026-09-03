@@ -7,6 +7,12 @@ import "./styles.css";
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const EARTH_SEARCH = "https://earth-search.aws.element84.com/v1/search";
 const example = "Analyze urban expansion around Pune from 2020 to 2026";
+const AOI = [73.7, 18.4, 74.0, 18.7];
+const AOI_FEATURE = {
+  type: "Feature",
+  properties: {},
+  geometry: {type: "Polygon", coordinates: [[[73.7, 18.4], [74.0, 18.4], [74.0, 18.7], [73.7, 18.7], [73.7, 18.4]]]},
+};
 
 function yearsFromPrompt(value) {
   const years = [...value.matchAll(/\b(?:19|20)\d{2}\b/g)].map(match => Number(match[0]));
@@ -19,7 +25,7 @@ async function searchEarthDirectly(prompt) {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
-      bbox: [73.7, 18.4, 74.0, 18.7],
+      bbox: AOI,
       datetime: `${start}-01-01T00:00:00Z/${end}-12-31T23:59:59Z`,
       collections: ["sentinel-2-l2a"],
       query: {"eo:cloud_cover": {lte: 20}},
@@ -33,6 +39,7 @@ async function searchEarthDirectly(prompt) {
     collection: feature.collection,
     datetime: feature.properties?.datetime,
     cloud_cover: feature.properties?.["eo:cloud_cover"],
+    geometry: feature.geometry,
   }));
   return {
     plan: {intent: "catalog_change_analysis"},
@@ -51,6 +58,7 @@ async function searchEarthDirectly(prompt) {
 function App() {
   const mapNode = useRef(null);
   const map = useRef(null);
+  const scenesRef = useRef([]);
   const [prompt, setPrompt] = useState(example);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
@@ -59,41 +67,81 @@ function App() {
   useEffect(() => {
     map.current = new maplibregl.Map({
       container: mapNode.current,
-      style: "https://demotiles.maplibre.org/style.json",
+      style: {
+        version: 8,
+        sources: {
+          satellite: {
+            type: "raster",
+            tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+            tileSize: 256,
+            attribution: "Tiles © Esri — Sources: Esri, Maxar, Earthstar Geographics",
+          },
+        },
+        layers: [{id: "satellite", type: "raster", source: "satellite"}],
+      },
       center: [73.85, 18.55],
-      zoom: 8,
+      zoom: 9,
       attributionControl: true,
     });
     map.current.addControl(new maplibregl.NavigationControl(), "top-right");
+    map.current.on("load", () => {
+      map.current.addSource("aoi", {type: "geojson", data: AOI_FEATURE});
+      map.current.addLayer({id: "aoi-fill", type: "fill", source: "aoi", paint: {"fill-color": "#62ead8", "fill-opacity": 0.12}});
+      map.current.addLayer({id: "aoi-line", type: "line", source: "aoi", paint: {"line-color": "#62ead8", "line-width": 3}});
+      map.current.addSource("scenes", {type: "geojson", data: {type: "FeatureCollection", features: scenesRef.current}});
+      map.current.addLayer({id: "scene-lines", type: "line", source: "scenes", paint: {"line-color": "#ffcc66", "line-width": 1.5, "line-opacity": 0.75}});
+      map.current.fitBounds([[AOI[0], AOI[1]], [AOI[2], AOI[3]]], {padding: 55, duration: 900});
+    });
     return () => map.current?.remove();
   }, []);
 
-  async function analyze(event) {
-    event.preventDefault();
+  useEffect(() => {
+    if (window.location.hostname.endsWith("github.io")) runAnalysis(example);
+  }, []);
+
+  function showResult(nextResult) {
+    scenesRef.current = nextResult.scenes
+      .filter(scene => scene.geometry)
+      .map(scene => ({type: "Feature", properties: {id: scene.id}, geometry: scene.geometry}));
+    const source = map.current?.getSource("scenes");
+    if (source) source.setData({type: "FeatureCollection", features: scenesRef.current});
+    setResult(nextResult);
+  }
+
+  async function runAnalysis(value) {
     setRunning(true);
     setError("");
     try {
+      if (window.location.hostname.endsWith("github.io")) {
+        showResult(await searchEarthDirectly(value));
+        return;
+      }
       const response = await fetch(`${API}/v1/analyze`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-          prompt,
-          bbox: [73.7, 18.4, 74.0, 18.7],
+          prompt: value,
+          bbox: AOI,
           collections: ["sentinel-2-l2a"],
           max_cloud_cover: 20,
         }),
       });
       if (!response.ok) throw new Error(`API returned ${response.status}`);
-      setResult(await response.json());
+      showResult(await response.json());
     } catch {
       try {
-        setResult(await searchEarthDirectly(prompt));
+        showResult(await searchEarthDirectly(value));
       } catch (caught) {
         setError(caught.message);
       }
     } finally {
       setRunning(false);
     }
+  }
+
+  function analyze(event) {
+    event.preventDefault();
+    runAnalysis(prompt);
   }
 
   return <main>
@@ -114,7 +162,7 @@ function App() {
         </form>
         {error && <p className="error">{error}</p>}
       </div>
-      <div className="map-shell"><div ref={mapNode} className="map" /><span className="map-label">PUNE · 73.7, 18.4, 74.0, 18.7</span></div>
+      <div className="map-shell"><div ref={mapNode} className="map" /><span className="map-label">XYZ SATELLITE · PUNE AOI · SENTINEL-2 FOOTPRINTS</span></div>
     </section>
     <section className="results">
       <article>
