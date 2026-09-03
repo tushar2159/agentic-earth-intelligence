@@ -13,7 +13,7 @@ const ENDPOINTS = {
   quakes: "https://earthquake.usgs.gov/fdsnws/event/1/query",
 };
 const DEFAULT_PLACE = {name: "Pune, India", latitude: 18.5204, longitude: 73.8567};
-const EXAMPLES = ["Show recent satellite imagery around Pune", "What is the weather in Mumbai today?", "Show air quality in Delhi", "Map earthquakes near Japan this month"];
+const EXAMPLES = ["Analyze urban expansion around Pune from 2020 to 2026", "What is the weather in Mumbai today?", "Show air quality in Delhi", "Map earthquakes near Japan this month"];
 
 const point = (place, properties = {}) => ({type: "Feature", geometry: {type: "Point", coordinates: [place.longitude, place.latitude]}, properties});
 const getJson = async (url, options) => { const response = await fetch(url, options); if (!response.ok) throw new Error(`${new URL(url).hostname} returned ${response.status}`); return response.json(); };
