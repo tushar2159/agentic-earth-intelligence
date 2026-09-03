@@ -8,6 +8,13 @@ Natural-language planning and traceable Earth-observation analysis built around 
 
 **[Open the live dashboard](https://tushar2159.github.io/agentic-earth-intelligence/)** · The hosted showcase automatically performs a real Earth Search query, displays returned scene footprints over an XYZ satellite basemap, and supports rerunning the prompt. Run the containers for the complete FastAPI workflow.
 
+The live showcase routes questions across four no-key public-data domains:
+
+- Earth observation: Element 84 Earth Search with Sentinel-2 COG rendering through TiTiler XYZ tiles
+- Weather: Open-Meteo current conditions and forecast
+- Air quality: Open-Meteo AQI and pollutant observations
+- Earthquakes: USGS FDSN event data with magnitude-scaled map points
+
 > **Implemented scope:** request planning, live STAC search, scene parsing/ranking, execution traces, metadata reporting, array-based change statistics, interactive map UI, containers, tests, and CI. Pixel-level COG compositing and LLM-provider integration are documented extensions—not implied existing behavior.
 
 ## Why this project
