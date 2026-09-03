@@ -13,7 +13,7 @@ const ENDPOINTS = {
   quakes: "https://earthquake.usgs.gov/fdsnws/event/1/query",
 };
 const DEFAULT_PLACE = {name: "Pune, India", latitude: 18.5204, longitude: 73.8567};
-const EXAMPLES = ["Analyze urban expansion around Pune from 2020 to 2026", "What is the weather in Mumbai today?", "Show air quality in Delhi", "Map earthquakes near Japan this month"];
+const EXAMPLES = ["Analyze urban expansion around Pune from 2020 to 2026", "Compare deforestation around Manaus from 2020 to 2026", "What is the weather in Mumbai today?", "Show air quality in Delhi", "Map earthquakes near Japan this month"];
 
 const point = (place, properties = {}) => ({type: "Feature", geometry: {type: "Point", coordinates: [place.longitude, place.latitude]}, properties});
 const getJson = async (url, options) => { const response = await fetch(url, options); if (!response.ok) throw new Error(`${new URL(url).hostname} returned ${response.status}`); return response.json(); };
@@ -57,18 +57,31 @@ async function earthObservation(place) {
   const [beforeData, afterData] = await Promise.all([search("2020-01-01T00:00:00Z/2020-12-31T23:59:59Z"), search(`${end.getFullYear()}-01-01T00:00:00Z/${end.toISOString()}`)]);
   const before = beforeData.features?.find(item => item.assets?.visual?.href); const after = afterData.features?.find(item => item.assets?.visual?.href);
   const tile = scene => scene ? `https://titiler.xyz/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=${encodeURIComponent(scene.assets.visual.href)}` : null;
+  const mode = /deforestation|forest|vegetation/i.test(place.activePrompt) ? {name: "Vegetation loss", index: "NDVI", bands: ["nir", "red"]} : /flood|water|shoreline/i.test(place.activePrompt) ? {name: "Surface water", index: "NDWI", bands: ["green", "nir"]} : {name: "Urban expansion", index: "NDBI", bands: ["swir16", "nir"]};
+  const mean = async href => (await getJson(`https://titiler.xyz/cog/statistics?url=${encodeURIComponent(href)}`)).b1.mean;
+  const indexValue = async scene => { if (!scene) return null; const [a, b] = await Promise.all(mode.bands.map(band => mean(scene.assets[band].href))); return (a - b) / (a + b); };
+  const [beforeIndex, afterIndex] = await Promise.all([indexValue(before), indexValue(after)]); const shift = beforeIndex == null || afterIndex == null ? null : (afterIndex - beforeIndex) * 100;
   const features = [before, after].filter(Boolean).map(item => ({type: "Feature", geometry: item.geometry, properties: {title: item.id, detail: `${item.properties.datetime.slice(0, 10)} · cloud ${Number(item.properties["eo:cloud_cover"]).toFixed(1)}%`}}));
-  return {domain: "urban-change", title: `Urban change explorer · ${place.name}`, summary: `Swipe between independently selected low-cloud Sentinel-2 observations from ${before?.properties.datetime.slice(0, 10) || "2020"} and ${after?.properties.datetime.slice(0, 10) || "current"}. This is visual evidence, not a fabricated change-area estimate.`, metrics: [["Baseline", before?.properties.datetime.slice(0, 10) || "Unavailable"], ["Current", after?.properties.datetime.slice(0, 10) || "Unavailable"], ["Baseline cloud", before ? `${Number(before.properties["eo:cloud_cover"]).toFixed(1)}%` : "—"], ["Current cloud", after ? `${Number(after.properties["eo:cloud_cover"]).toFixed(1)}%` : "—"]], features, beforeRasterUrl: tile(before), afterRasterUrl: tile(after), bbox, center: [place.longitude, place.latitude], zoom: 9, trace: ["Resolve urban AOI", "Search 2020 baseline", `Search ${end.getFullYear()} observation`, "Select low-cloud visual COGs", "Render synchronized XYZ comparison"], provider: "Element 84 Earth Search + TiTiler", comparison: true};
+  return {domain: "change-intelligence", title: `${mode.name} explorer · ${place.name}`, summary: `Swipe between low-cloud Sentinel-2 observations from ${before?.properties.datetime.slice(0, 10) || "2020"} and ${after?.properties.datetime.slice(0, 10) || "current"}. The ${mode.index} scene-mean shifted ${shift == null ? "unavailable" : `${shift >= 0 ? "+" : ""}${shift.toFixed(2)}%`}; this is a spectral proxy, not classified change area.`, metrics: [[`${mode.index} shift`, shift == null ? "—" : `${shift >= 0 ? "+" : ""}${shift.toFixed(2)}%`], ["Baseline", before?.properties.datetime.slice(0, 10) || "Unavailable"], ["Current", after?.properties.datetime.slice(0, 10) || "Unavailable"], ["Cloud pair", before && after ? `${Number(before.properties["eo:cloud_cover"]).toFixed(1)}% / ${Number(after.properties["eo:cloud_cover"]).toFixed(1)}%` : "—"]], features, beforeRasterUrl: tile(before), afterRasterUrl: tile(after), bbox, center: [place.longitude, place.latitude], zoom: 9, trace: ["Resolve change type and AOI", "Search 2020 baseline", `Search ${end.getFullYear()} observation`, `Compute scene-mean ${mode.index} proxy`, "Render synchronized XYZ comparison"], provider: "Element 84 Earth Search + TiTiler", comparison: true, mode};
 }
 
 async function route(prompt) {
-  const domain = domainOf(prompt); const place = await geocode(prompt).catch(() => DEFAULT_PLACE);
+  const domain = domainOf(prompt); const place = await geocode(prompt).catch(() => ({...DEFAULT_PLACE})); place.activePrompt = prompt;
   return domain === "weather" ? weather(place) : domain === "air-quality" ? airQuality(place) : domain === "earthquakes" ? earthquakes(place) : earthObservation(place);
 }
 
 function App() {
-  const beforeNode = useRef(null); const afterNode = useRef(null); const maps = useRef([]); const pending = useRef(null);
-  const [prompt, setPrompt] = useState(EXAMPLES[0]); const [running, setRunning] = useState(false); const [result, setResult] = useState(null); const [error, setError] = useState(""); const [swipe, setSwipe] = useState(50);
+  const beforeNode = useRef(null); const afterNode = useRef(null); const maps = useRef([]); const pending = useRef(null); const layerState = useRef({basemap: true, imagery: true, footprints: true, observations: true});
+  const [prompt, setPrompt] = useState(EXAMPLES[0]); const [running, setRunning] = useState(false); const [result, setResult] = useState(null); const [error, setError] = useState(""); const [swipe, setSwipe] = useState(50); const [layers, setLayers] = useState(layerState.current); const [hoverInfo, setHoverInfo] = useState(null);
+
+  function applyVisibility() {
+    const ids = {basemap: "satellite", imagery: "analysis-raster", footprints: "result-lines", observations: "result-points"};
+    maps.current.forEach(item => Object.entries(ids).forEach(([key, id]) => { if (item.getLayer(id)) item.setLayoutProperty(id, "visibility", layerState.current[key] ? "visible" : "none"); }));
+  }
+
+  function toggleLayer(key) {
+    layerState.current = {...layerState.current, [key]: !layerState.current[key]}; setLayers(layerState.current); applyVisibility();
+  }
 
   function draw(next) {
     pending.current = next; if (maps.current.some(item => !item.isStyleLoaded())) return;
@@ -81,6 +94,7 @@ function App() {
       item.addLayer({id: "result-lines", type: "line", source: "results", filter: ["==", ["geometry-type"], "Polygon"], paint: {"line-color": "#ffcc66", "line-width": 2}});
       item.addLayer({id: "result-points", type: "circle", source: "results", filter: ["==", ["geometry-type"], "Point"], paint: {"circle-color": ["case", ["has", "mag"], "#ff624d", "#62ead8"], "circle-radius": ["case", ["has", "mag"], ["interpolate", ["linear"], ["get", "mag"], 2.5, 5, 7, 22], 11], "circle-stroke-color": "white", "circle-stroke-width": 1.5, "circle-opacity": 0.9}});
     });
+    applyVisibility();
     const primary = maps.current[0]; next.bbox ? primary.fitBounds([[next.bbox[0], next.bbox[1]], [next.bbox[2], next.bbox[3]]], {padding: 45, duration: 900}) : primary.flyTo({center: next.center, zoom: next.zoom, duration: 900});
   }
 
@@ -92,20 +106,29 @@ function App() {
     let syncing = false;
     const synchronize = (source, target) => { if (syncing) return; syncing = true; target.jumpTo({center: source.getCenter(), zoom: source.getZoom(), bearing: source.getBearing(), pitch: source.getPitch()}); syncing = false; };
     beforeMap.on("move", () => synchronize(beforeMap, afterMap)); afterMap.on("move", () => synchronize(afterMap, beforeMap));
-    const popup = new maplibregl.Popup({closeButton: false, closeOnClick: false});
     maps.current.forEach(item => {
       item.on("load", () => pending.current && draw(pending.current));
-      item.on("mousemove", "result-points", event => { const feature = event.features?.[0]; if (!feature) return; item.getCanvas().style.cursor = "pointer"; const p = feature.properties; popup.setLngLat(event.lngLat).setHTML(`<strong>${p.title || p.place || "Live observation"}</strong><br>${p.detail || (p.mag ? `Magnitude ${p.mag}` : "Interactive map evidence")}`).addTo(item); });
-      item.on("mouseleave", "result-points", () => { item.getCanvas().style.cursor = ""; popup.remove(); });
-      item.on("mousemove", "result-lines", event => { const feature = event.features?.[0]; if (!feature) return; item.getCanvas().style.cursor = "pointer"; popup.setLngLat(event.lngLat).setHTML(`<strong>${feature.properties.title || "Sentinel-2 scene"}</strong><br>${feature.properties.detail || "Scene footprint"}`).addTo(item); });
-      item.on("mouseleave", "result-lines", () => { item.getCanvas().style.cursor = ""; popup.remove(); });
+      item.on("mousemove", "result-points", event => { const feature = event.features?.[0]; if (!feature) return; item.getCanvas().style.cursor = "pointer"; const p = feature.properties; setHoverInfo({title: p.title || p.place || "Live observation", detail: p.detail || (p.mag ? `Magnitude ${p.mag}` : "Interactive map evidence")}); });
+      item.on("mouseleave", "result-points", () => { item.getCanvas().style.cursor = ""; setHoverInfo(null); });
+      item.on("mousemove", "result-lines", event => { const feature = event.features?.[0]; if (!feature) return; item.getCanvas().style.cursor = "pointer"; setHoverInfo({title: feature.properties.title || "Sentinel-2 scene", detail: feature.properties.detail || "Scene footprint"}); });
+      item.on("mouseleave", "result-lines", () => { item.getCanvas().style.cursor = ""; setHoverInfo(null); });
     });
     return () => { beforeMap.remove(); afterMap.remove(); };
   }, []);
   useEffect(() => { run(EXAMPLES[0]); }, []);
   async function run(value) { setRunning(true); setError(""); try { const next = await route(value); setResult(next); draw(next); } catch (caught) { setError(caught.message); } finally { setRunning(false); } }
 
-  return <main><header><div className="mark">AE</div><div><strong>Agentic Earth Intelligence</strong><span>Live public-data intelligence</span></div><a href="https://github.com/tushar2159/agentic-earth-intelligence">GitHub ↗</a></header><section className="hero"><div className="copy"><p className="eyebrow">ASK ACROSS DOMAINS</p><h1>Ask Earth.<br/><span>See the answer.</span></h1><p>Route natural-language questions to live Earth observation, weather, air-quality and earthquake services, then visualize the evidence.</p><form onSubmit={event => {event.preventDefault(); run(prompt);}}><label htmlFor="prompt">Question</label><textarea id="prompt" value={prompt} onChange={event => setPrompt(event.target.value)}/><div className="examples">{EXAMPLES.map(item => <button type="button" key={item} onClick={() => {setPrompt(item); run(item);}}>{item.split(" ").slice(0, 3).join(" ")}…</button>)}</div><button className="analyze" disabled={running}>{running ? "Querying live providers…" : "Analyze live data"}</button></form>{error && <p className="error">{error}</p>}</div><div className="map-shell"><div className="comparison"><div ref={beforeNode} className="map compare-map"/><div ref={afterNode} className="map compare-map after-map" style={{clipPath: `inset(0 0 0 ${swipe}%)`}}/></div>{result?.comparison && <><div className="map-dates"><span>2020 BASELINE</span><span>CURRENT</span></div><input className="compare-range" type="range" min="0" max="100" value={swipe} onChange={event => setSwipe(Number(event.target.value))} aria-label="Compare baseline and current imagery"/><div className="compare-line" style={{left: `${swipe}%`}}><i>↔</i></div></>}<div className="legend"><strong>MAP EVIDENCE</strong>{result?.comparison && <><span><i className="swatch raster"/>Sentinel-2 COG</span><span><i className="swatch scene"/>Scene footprint</span></>}{result?.domain === "earthquakes" ? <span><i className="swatch quake"/>Earthquake magnitude</span> : !result?.comparison && <span><i className="swatch point"/>Live observation</span>}<small>Hover features for details{result?.comparison ? " · drag the center slider" : ""}</small></div><span className="map-label">XYZ SATELLITE · INTERACTIVE LIVE LAYERS</span></div></section><section className="results"><article><span>EXECUTION TRACE</span><h2>{result?.title || (running ? "Running analysis" : "Ready")}</h2><div className="timeline">{(result?.trace || ["Interpret question", "Select provider", "Fetch live data", "Visualize evidence"]).map((item, index) => <div key={item}><b>{String(index + 1).padStart(2, "0")}</b><p>{item}</p></div>)}</div></article><article><span>LIVE ANSWER</span><h2>{result?.domain?.replace("-", " ") || "Awaiting data"}</h2><p>{result?.summary || "The urban-change comparison starts automatically."}</p>{result?.metrics && <div className="metrics">{result.metrics.map(([label, value]) => <div key={label}><b>{value}</b><span>{label}</span></div>)}</div>}<small>{result ? `SOURCE · ${result.provider}` : "PUBLIC, NO-KEY PROVIDERS"}</small></article></section></main>;
+  return <main>
+    <header><div className="mark">AE</div><div><strong>Agentic Earth Intelligence</strong><span>Live public-data intelligence</span></div><a href="https://github.com/tushar2159/agentic-earth-intelligence">GitHub ↗</a></header>
+    <section className="hero"><div className="copy"><p className="eyebrow">ASK ACROSS DOMAINS</p><h1>Ask Earth.<br/><span>See the answer.</span></h1><p>Route natural-language questions to live Earth observation, weather, air-quality and earthquake services, then visualize the evidence.</p><form onSubmit={event => {event.preventDefault(); run(prompt);}}><label htmlFor="prompt">Question</label><textarea id="prompt" value={prompt} onChange={event => setPrompt(event.target.value)}/><div className="examples">{EXAMPLES.map(item => <button type="button" key={item} title={item} onClick={() => {setPrompt(item); run(item);}}>{item}</button>)}</div><button className="analyze" disabled={running}>{running ? "Querying live providers…" : "Analyze live data"}</button></form>{error && <p className="error">{error}</p>}</div>
+      <div className="map-shell"><div className="comparison"><div ref={beforeNode} className="map compare-map"/><div ref={afterNode} className="map compare-map after-map" style={{clipPath: result?.comparison ? `inset(0 0 0 ${swipe}%)` : "none"}}/></div>
+        {result?.comparison && <><div className="map-dates"><span>2020 BASELINE</span><span>CURRENT</span></div><input className="compare-range" type="range" min="0" max="100" value={swipe} onChange={event => setSwipe(Number(event.target.value))} aria-label="Compare baseline and current imagery"/><div className="compare-line" style={{left: `${swipe}%`}}><i>↔</i></div></>}
+        <div className="layer-controls"><strong>LAYERS</strong>{Object.entries(layers).map(([key, enabled]) => <button className={enabled ? "active" : ""} type="button" key={key} onClick={() => toggleLayer(key)}>{enabled ? "✓" : "○"} {key}</button>)}</div>
+        {hoverInfo && <div className="hover-card"><strong>{hoverInfo.title}</strong><span>{hoverInfo.detail}</span></div>}
+        <div className="legend"><strong>MAP EVIDENCE</strong>{result?.comparison && <><span><i className="swatch raster"/>Sentinel-2 COG</span><span><i className="swatch scene"/>Scene footprint</span></>}{result?.domain === "earthquakes" ? <span><i className="swatch quake"/>Earthquake magnitude</span> : !result?.comparison && <span><i className="swatch point"/>Live observation</span>}<small>Hover features for details{result?.comparison ? " · drag the center slider" : ""}</small></div><span className="map-label">XYZ SATELLITE · INTERACTIVE LIVE LAYERS</span>
+      </div></section>
+    <section className="results"><article><span>EXECUTION TRACE</span><h2>{result?.title || (running ? "Running analysis" : "Ready")}</h2><div className="timeline">{(result?.trace || ["Interpret question", "Select provider", "Fetch live data", "Visualize evidence"]).map((item, index) => <div key={item}><b>{String(index + 1).padStart(2, "0")}</b><p>{item}</p></div>)}</div></article><article><span>LIVE ANSWER</span><h2>{result?.domain?.replace("-", " ") || "Awaiting data"}</h2><p>{result?.summary || "The change comparison starts automatically."}</p>{result?.metrics && <div className="metrics">{result.metrics.map(([label, value]) => <div key={label}><b>{value}</b><span>{label}</span></div>)}</div>}<small>{result ? `SOURCE · ${result.provider}` : "PUBLIC, NO-KEY PROVIDERS"}</small></article></section>
+  </main>;
 }
 
 createRoot(document.getElementById("root")).render(<App/>);
