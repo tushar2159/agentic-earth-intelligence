@@ -1,10 +1,9 @@
 import React, {useEffect, useRef, useState} from "react";
 import {createRoot} from "react-dom/client";
 import maplibregl from "maplibre-gl";
-import Compare from "@maplibre/maplibre-gl-compare";
 import "maplibre-gl/dist/maplibre-gl.css";
-import "@maplibre/maplibre-gl-compare/dist/maplibre-gl-compare.css";
 import "./styles.css";
+import "./interactive.css";
 
 const ENDPOINTS = {
   stac: "https://earth-search.aws.element84.com/v1/search",
@@ -68,8 +67,8 @@ async function route(prompt) {
 }
 
 function App() {
-  const beforeNode = useRef(null); const afterNode = useRef(null); const compareNode = useRef(null); const maps = useRef([]); const pending = useRef(null);
-  const [prompt, setPrompt] = useState(EXAMPLES[0]); const [running, setRunning] = useState(false); const [result, setResult] = useState(null); const [error, setError] = useState("");
+  const beforeNode = useRef(null); const afterNode = useRef(null); const maps = useRef([]); const pending = useRef(null);
+  const [prompt, setPrompt] = useState(EXAMPLES[0]); const [running, setRunning] = useState(false); const [result, setResult] = useState(null); const [error, setError] = useState(""); const [swipe, setSwipe] = useState(50);
 
   function draw(next) {
     pending.current = next; if (maps.current.some(item => !item.isStyleLoaded())) return;
@@ -90,8 +89,9 @@ function App() {
     const beforeMap = new maplibregl.Map({container: beforeNode.current, center: [73.8567, 18.5204], zoom: 8, attributionControl: true, style: style()});
     const afterMap = new maplibregl.Map({container: afterNode.current, center: [73.8567, 18.5204], zoom: 8, attributionControl: false, style: style()});
     maps.current = [beforeMap, afterMap]; beforeMap.addControl(new maplibregl.NavigationControl(), "top-right");
-    const CompareControl = typeof Compare === "function" ? Compare : maplibregl.Compare || window.maplibregl?.Compare;
-    const comparison = new CompareControl(beforeMap, afterMap, compareNode.current, {orientation: "vertical"});
+    let syncing = false;
+    const synchronize = (source, target) => { if (syncing) return; syncing = true; target.jumpTo({center: source.getCenter(), zoom: source.getZoom(), bearing: source.getBearing(), pitch: source.getPitch()}); syncing = false; };
+    beforeMap.on("move", () => synchronize(beforeMap, afterMap)); afterMap.on("move", () => synchronize(afterMap, beforeMap));
     const popup = new maplibregl.Popup({closeButton: false, closeOnClick: false});
     maps.current.forEach(item => {
       item.on("load", () => pending.current && draw(pending.current));
@@ -100,12 +100,12 @@ function App() {
       item.on("mousemove", "result-lines", event => { const feature = event.features?.[0]; if (!feature) return; item.getCanvas().style.cursor = "pointer"; popup.setLngLat(event.lngLat).setHTML(`<strong>${feature.properties.title || "Sentinel-2 scene"}</strong><br>${feature.properties.detail || "Scene footprint"}`).addTo(item); });
       item.on("mouseleave", "result-lines", () => { item.getCanvas().style.cursor = ""; popup.remove(); });
     });
-    return () => { comparison.remove(); beforeMap.remove(); afterMap.remove(); };
+    return () => { beforeMap.remove(); afterMap.remove(); };
   }, []);
   useEffect(() => { run(EXAMPLES[0]); }, []);
   async function run(value) { setRunning(true); setError(""); try { const next = await route(value); setResult(next); draw(next); } catch (caught) { setError(caught.message); } finally { setRunning(false); } }
 
-  return <main><header><div className="mark">AE</div><div><strong>Agentic Earth Intelligence</strong><span>Live public-data intelligence</span></div><a href="https://github.com/tushar2159/agentic-earth-intelligence">GitHub ↗</a></header><section className="hero"><div className="copy"><p className="eyebrow">ASK ACROSS DOMAINS</p><h1>Ask Earth.<br/><span>See the answer.</span></h1><p>Route natural-language questions to live Earth observation, weather, air-quality and earthquake services, then visualize the evidence.</p><form onSubmit={event => {event.preventDefault(); run(prompt);}}><label htmlFor="prompt">Question</label><textarea id="prompt" value={prompt} onChange={event => setPrompt(event.target.value)}/><div className="examples">{EXAMPLES.map(item => <button type="button" key={item} onClick={() => {setPrompt(item); run(item);}}>{item.split(" ").slice(0, 3).join(" ")}…</button>)}</div><button className="analyze" disabled={running}>{running ? "Querying live providers…" : "Analyze live data"}</button></form>{error && <p className="error">{error}</p>}</div><div className="map-shell"><div ref={compareNode} className="comparison"><div ref={beforeNode} className="map compare-map"/><div ref={afterNode} className="map compare-map"/></div>{result?.comparison && <div className="map-dates"><span>2020 BASELINE</span><span>CURRENT</span></div>}<div className="legend"><strong>MAP EVIDENCE</strong>{result?.comparison && <><span><i className="swatch raster"/>Sentinel-2 COG</span><span><i className="swatch scene"/>Scene footprint</span></>}{result?.domain === "earthquakes" ? <span><i className="swatch quake"/>Earthquake magnitude</span> : !result?.comparison && <span><i className="swatch point"/>Live observation</span>}<small>Hover features for details{result?.comparison ? " · drag the center slider" : ""}</small></div><span className="map-label">XYZ SATELLITE · INTERACTIVE LIVE LAYERS</span></div></section><section className="results"><article><span>EXECUTION TRACE</span><h2>{result?.title || (running ? "Running analysis" : "Ready")}</h2><div className="timeline">{(result?.trace || ["Interpret question", "Select provider", "Fetch live data", "Visualize evidence"]).map((item, index) => <div key={item}><b>{String(index + 1).padStart(2, "0")}</b><p>{item}</p></div>)}</div></article><article><span>LIVE ANSWER</span><h2>{result?.domain?.replace("-", " ") || "Awaiting data"}</h2><p>{result?.summary || "The urban-change comparison starts automatically."}</p>{result?.metrics && <div className="metrics">{result.metrics.map(([label, value]) => <div key={label}><b>{value}</b><span>{label}</span></div>)}</div>}<small>{result ? `SOURCE · ${result.provider}` : "PUBLIC, NO-KEY PROVIDERS"}</small></article></section></main>;
+  return <main><header><div className="mark">AE</div><div><strong>Agentic Earth Intelligence</strong><span>Live public-data intelligence</span></div><a href="https://github.com/tushar2159/agentic-earth-intelligence">GitHub ↗</a></header><section className="hero"><div className="copy"><p className="eyebrow">ASK ACROSS DOMAINS</p><h1>Ask Earth.<br/><span>See the answer.</span></h1><p>Route natural-language questions to live Earth observation, weather, air-quality and earthquake services, then visualize the evidence.</p><form onSubmit={event => {event.preventDefault(); run(prompt);}}><label htmlFor="prompt">Question</label><textarea id="prompt" value={prompt} onChange={event => setPrompt(event.target.value)}/><div className="examples">{EXAMPLES.map(item => <button type="button" key={item} onClick={() => {setPrompt(item); run(item);}}>{item.split(" ").slice(0, 3).join(" ")}…</button>)}</div><button className="analyze" disabled={running}>{running ? "Querying live providers…" : "Analyze live data"}</button></form>{error && <p className="error">{error}</p>}</div><div className="map-shell"><div className="comparison"><div ref={beforeNode} className="map compare-map"/><div ref={afterNode} className="map compare-map after-map" style={{clipPath: `inset(0 0 0 ${swipe}%)`}}/></div>{result?.comparison && <><div className="map-dates"><span>2020 BASELINE</span><span>CURRENT</span></div><input className="compare-range" type="range" min="0" max="100" value={swipe} onChange={event => setSwipe(Number(event.target.value))} aria-label="Compare baseline and current imagery"/><div className="compare-line" style={{left: `${swipe}%`}}><i>↔</i></div></>}<div className="legend"><strong>MAP EVIDENCE</strong>{result?.comparison && <><span><i className="swatch raster"/>Sentinel-2 COG</span><span><i className="swatch scene"/>Scene footprint</span></>}{result?.domain === "earthquakes" ? <span><i className="swatch quake"/>Earthquake magnitude</span> : !result?.comparison && <span><i className="swatch point"/>Live observation</span>}<small>Hover features for details{result?.comparison ? " · drag the center slider" : ""}</small></div><span className="map-label">XYZ SATELLITE · INTERACTIVE LIVE LAYERS</span></div></section><section className="results"><article><span>EXECUTION TRACE</span><h2>{result?.title || (running ? "Running analysis" : "Ready")}</h2><div className="timeline">{(result?.trace || ["Interpret question", "Select provider", "Fetch live data", "Visualize evidence"]).map((item, index) => <div key={item}><b>{String(index + 1).padStart(2, "0")}</b><p>{item}</p></div>)}</div></article><article><span>LIVE ANSWER</span><h2>{result?.domain?.replace("-", " ") || "Awaiting data"}</h2><p>{result?.summary || "The urban-change comparison starts automatically."}</p>{result?.metrics && <div className="metrics">{result.metrics.map(([label, value]) => <div key={label}><b>{value}</b><span>{label}</span></div>)}</div>}<small>{result ? `SOURCE · ${result.provider}` : "PUBLIC, NO-KEY PROVIDERS"}</small></article></section></main>;
 }
 
 createRoot(document.getElementById("root")).render(<App/>);

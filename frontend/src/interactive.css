@@ -1,0 +1,9 @@
+.compare-range {
+  top: 50%;
+  left: 8px;
+  right: auto;
+  bottom: auto;
+  width: calc(100% - 16px);
+  height: 42px;
+  transform: translateY(-50%);
+}
