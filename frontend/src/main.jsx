@@ -90,7 +90,8 @@ function App() {
     const beforeMap = new maplibregl.Map({container: beforeNode.current, center: [73.8567, 18.5204], zoom: 8, attributionControl: true, style: style()});
     const afterMap = new maplibregl.Map({container: afterNode.current, center: [73.8567, 18.5204], zoom: 8, attributionControl: false, style: style()});
     maps.current = [beforeMap, afterMap]; beforeMap.addControl(new maplibregl.NavigationControl(), "top-right");
-    const comparison = new Compare(beforeMap, afterMap, compareNode.current, {orientation: "vertical"});
+    const CompareControl = typeof Compare === "function" ? Compare : maplibregl.Compare || window.maplibregl?.Compare;
+    const comparison = new CompareControl(beforeMap, afterMap, compareNode.current, {orientation: "vertical"});
     const popup = new maplibregl.Popup({closeButton: false, closeOnClick: false});
     maps.current.forEach(item => {
       item.on("load", () => pending.current && draw(pending.current));
