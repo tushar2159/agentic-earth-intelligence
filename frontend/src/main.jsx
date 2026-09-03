@@ -14,15 +14,23 @@ const ENDPOINTS = {
 };
 const DEFAULT_PLACE = {name: "Pune, India", latitude: 18.5204, longitude: 73.8567};
 const EXAMPLES = ["Analyze urban expansion around Pune from 2020 to 2026", "Compare deforestation around Manaus from 2020 to 2026", "What is the weather in Mumbai today?", "Show air quality in Delhi", "Map earthquakes near Japan this month"];
-const CACHE_KEY = "aei-query-cache-v1";
+const CACHE_KEY = "aei-query-cache-v2";
 const CACHE_TTL = 15 * 60 * 1000;
 
 const point = (place, properties = {}) => ({type: "Feature", geometry: {type: "Point", coordinates: [place.longitude, place.latitude]}, properties});
 const getJson = async (url, options) => { const response = await fetch(url, options); if (!response.ok) throw new Error(`${new URL(url).hostname} returned ${response.status}`); return response.json(); };
 const domainOf = prompt => /earthquake|seismic|tremor/i.test(prompt) ? "earthquakes" : /air quality|pollution|pm2\.5|pm10|aqi/i.test(prompt) ? "air-quality" : /weather|temperature|rain|wind|forecast/i.test(prompt) ? "weather" : "earth-observation";
 
+function yearsFromPrompt(prompt) {
+  const current = new Date().getFullYear();
+  const years = [...prompt.matchAll(/\b(?:19|20)\d{2}\b/g)].map(match => Number(match[0])).filter(year => year >= 2015 && year <= current);
+  if (years.length >= 2) return [Math.min(...years), Math.max(...years)];
+  if (years.length === 1) return [years[0], current];
+  return [2020, current];
+}
+
 function placeName(prompt) {
-  return prompt.match(/(?:\bin\b|\baround\b|\bnear\b|\bfor\b)\s+([\p{L} .'-]+?)(?=\s+(?:from|between|during|today|tomorrow|this|last|past|with)\b|[?.,]|$)/iu)?.[1]?.trim() || "Pune";
+  return prompt.match(/(?:\bin\b|\baround\b|\bnear\b|\bfor\b)\s+([\p{L} .'-]+?)(?=\s+(?:from|between|during|today|tomorrow|this|last|past|with|(?:19|20)\d{2})\b|[?.,]|$)/iu)?.[1]?.trim() || "Pune";
 }
 
 async function geocode(prompt) {
@@ -54,9 +62,10 @@ async function earthquakes(place) {
 }
 
 async function earthObservation(place) {
-  const d = 0.16; const bbox = [place.longitude - d, place.latitude - d, place.longitude + d, place.latitude + d]; const end = new Date();
+  const d = 0.16; const bbox = [place.longitude - d, place.latitude - d, place.longitude + d, place.latitude + d]; const now = new Date(); const [baselineYear, currentYear] = yearsFromPrompt(place.activePrompt);
   const search = async datetime => getJson(ENDPOINTS.stac, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({bbox, datetime, collections: ["sentinel-2-l2a"], query: {"eo:cloud_cover": {lte: 15}}, sortby: [{field: "properties.datetime", direction: "desc"}], limit: 10})});
-  const [beforeData, afterData] = await Promise.all([search("2020-01-01T00:00:00Z/2020-12-31T23:59:59Z"), search(`${end.getFullYear()}-01-01T00:00:00Z/${end.toISOString()}`)]);
+  const interval = year => `${year}-01-01T00:00:00Z/${year === now.getFullYear() ? now.toISOString() : `${year}-12-31T23:59:59Z`}`;
+  const [beforeData, afterData] = await Promise.all([search(interval(baselineYear)), search(interval(currentYear))]);
   const before = beforeData.features?.find(item => item.assets?.visual?.href); const after = afterData.features?.find(item => item.assets?.visual?.href);
   const tile = scene => scene ? `https://titiler.xyz/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=${encodeURIComponent(scene.assets.visual.href)}` : null;
   const mode = /deforestation|forest|vegetation/i.test(place.activePrompt) ? {name: "Vegetation loss", index: "NDVI", bands: ["nir", "red"]} : /flood|water|shoreline/i.test(place.activePrompt) ? {name: "Surface water", index: "NDWI", bands: ["green", "nir"]} : {name: "Urban expansion", index: "NDBI", bands: ["swir16", "nir"]};
@@ -64,7 +73,7 @@ async function earthObservation(place) {
   const indexValue = async scene => { if (!scene) return null; const [a, b] = await Promise.all(mode.bands.map(band => mean(scene.assets[band].href))); return (a - b) / (a + b); };
   const [beforeIndex, afterIndex] = await Promise.all([indexValue(before), indexValue(after)]); const shift = beforeIndex == null || afterIndex == null ? null : (afterIndex - beforeIndex) * 100;
   const features = [before, after].filter(Boolean).map(item => ({type: "Feature", geometry: item.geometry, properties: {title: item.id, detail: `${item.properties.datetime.slice(0, 10)} · cloud ${Number(item.properties["eo:cloud_cover"]).toFixed(1)}%`}}));
-  return {domain: "change-intelligence", title: `${mode.name} explorer · ${place.name}`, summary: `Swipe between low-cloud observations from ${before?.properties.datetime.slice(0, 10) || "2020"} and ${after?.properties.datetime.slice(0, 10) || "current"}. The ${mode.index} scene-mean shifted ${shift == null ? "unavailable" : `${shift >= 0 ? "+" : ""}${shift.toFixed(2)}%`}; this is a spectral proxy, not classified change area.`, metrics: [[`${mode.index} shift`, shift == null ? "—" : `${shift >= 0 ? "+" : ""}${shift.toFixed(2)}%`], ["Baseline", before?.properties.datetime.slice(0, 10) || "Unavailable"], ["Current", after?.properties.datetime.slice(0, 10) || "Unavailable"], ["Cloud pair", before && after ? `${Number(before.properties["eo:cloud_cover"]).toFixed(1)}% / ${Number(after.properties["eo:cloud_cover"]).toFixed(1)}%` : "—"]], features, beforeRasterUrl: tile(before), afterRasterUrl: tile(after), bbox, center: [place.longitude, place.latitude], zoom: 9, trace: ["Resolve change type and AOI", "Select temporal baseline", "Select current observation", `Compute scene-mean ${mode.index} proxy`, "Render synchronized comparison"], comparison: true, mode};
+  return {domain: "change-intelligence", title: `${mode.name} explorer · ${place.name}`, summary: `Swipe between low-cloud observations from ${before?.properties.datetime.slice(0, 10) || baselineYear} and ${after?.properties.datetime.slice(0, 10) || currentYear}. The ${mode.index} scene-mean shifted ${shift == null ? "unavailable" : `${shift >= 0 ? "+" : ""}${shift.toFixed(2)}%`}; this is a spectral proxy, not classified change area.`, metrics: [[`${mode.index} shift`, shift == null ? "—" : `${shift >= 0 ? "+" : ""}${shift.toFixed(2)}%`], ["Baseline", before?.properties.datetime.slice(0, 10) || "Unavailable"], ["Comparison", after?.properties.datetime.slice(0, 10) || "Unavailable"], ["Cloud pair", before && after ? `${Number(before.properties["eo:cloud_cover"]).toFixed(1)}% / ${Number(after.properties["eo:cloud_cover"]).toFixed(1)}%` : "—"]], features, beforeRasterUrl: tile(before), afterRasterUrl: tile(after), bbox, center: [place.longitude, place.latitude], zoom: 9, trace: ["Resolve change type, AOI and years", `Search ${baselineYear} baseline`, `Search ${currentYear} comparison`, `Compute scene-mean ${mode.index} proxy`, "Render synchronized comparison"], comparison: true, mode, baselineLabel: String(baselineYear), comparisonLabel: String(currentYear)};
 }
 
 async function route(prompt) {
@@ -135,7 +144,7 @@ function App() {
     <header><div className="mark">AE</div><div><strong>Agentic Earth Intelligence</strong><span>Live public-data intelligence</span></div><a href="https://github.com/tushar2159/agentic-earth-intelligence">GitHub ↗</a></header>
     <section className="hero"><div className="copy"><p className="eyebrow">ASK ACROSS DOMAINS</p><h1>Ask Earth.<br/><span>See the answer.</span></h1><p>Route natural-language questions to live Earth observation, weather, air-quality and earthquake services, then visualize the evidence.</p><form onSubmit={event => {event.preventDefault(); run(prompt);}}><label htmlFor="prompt">Question</label><textarea id="prompt" value={prompt} onChange={event => setPrompt(event.target.value)}/><div className="examples">{EXAMPLES.map(item => <button type="button" key={item} title={item} onClick={() => {setPrompt(item); run(item);}}>{item}</button>)}</div><button className="analyze" disabled={running}>{running ? "Querying live providers…" : "Analyze live data"}</button></form>{error && <p className="error">{error}</p>}</div>
       <div className="map-shell"><div className="comparison"><div ref={beforeNode} className="map compare-map"/><div ref={afterNode} className="map compare-map after-map" style={{clipPath: result?.comparison ? `inset(0 0 0 ${swipe}%)` : "none"}}/></div>
-        {result?.comparison && <><div className="map-dates"><span>2020 BASELINE</span><span>CURRENT</span></div><input className="compare-range" type="range" min="0" max="100" value={swipe} onChange={event => setSwipe(Number(event.target.value))} aria-label="Compare baseline and current imagery"/><div className="compare-line" style={{left: `${swipe}%`}}><i>↔</i></div></>}
+        {result?.comparison && <><div className="map-dates"><span>{result.baselineLabel} BASELINE</span><span>{result.comparisonLabel} COMPARISON</span></div><input className="compare-range" type="range" min="0" max="100" value={swipe} onChange={event => setSwipe(Number(event.target.value))} aria-label="Compare baseline and comparison imagery"/><div className="compare-line" style={{left: `${swipe}%`}}><i>↔</i></div></>}
         <div className="layer-controls"><strong>LAYERS</strong>{Object.entries(layers).map(([key, enabled]) => <button className={enabled ? "active" : ""} type="button" key={key} onClick={() => toggleLayer(key)}>{enabled ? "✓" : "○"} {key}</button>)}</div>
         {hoverInfo && <div className="hover-card"><strong>{hoverInfo.title}</strong><span>{hoverInfo.detail}</span></div>}
         <div className="legend"><strong>MAP EVIDENCE</strong>{result?.comparison && <><span><i className="swatch raster"/>Sentinel-2 COG</span><span><i className="swatch scene"/>Scene footprint</span></>}{result?.domain === "earthquakes" ? <span><i className="swatch quake"/>Earthquake magnitude</span> : !result?.comparison && <span><i className="swatch point"/>Live observation</span>}<small>Hover features for details{result?.comparison ? " · drag the center slider" : ""}</small></div><span className="map-label">XYZ SATELLITE · INTERACTIVE LIVE LAYERS</span>
