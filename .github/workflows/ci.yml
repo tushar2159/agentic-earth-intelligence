@@ -1,5 +1,10 @@
 name: CI
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 on:
   push:
     branches: [main]
@@ -33,3 +38,19 @@ jobs:
       - run: npm install
       - run: npm run build
       - run: docker build -t agentic-earth-dashboard:test .
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name == 'push'
+        with:
+          path: frontend/dist
+
+  deploy:
+    if: github.event_name == 'push'
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy public dashboard
+        id: deployment
+        uses: actions/deploy-pages@v4
