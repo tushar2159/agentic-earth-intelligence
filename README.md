@@ -15,6 +15,8 @@ The live showcase routes questions across four no-key public-data domains:
 - Air quality: Open-Meteo AQI and pollutant observations
 - Earthquakes: USGS FDSN event data with magnitude-scaled map points
 
+Map interactions include synchronized before/after views, a draggable Sentinel-2 comparison control, context-aware legends, magnitude-scaled symbols, scene footprints, and hover details. The urban comparison intentionally reports acquisition evidence and cloud metadata without inventing a change-area statistic; quantitative land-cover change belongs behind a validated classification workflow.
+
 > **Implemented scope:** request planning, live STAC search, scene parsing/ranking, execution traces, metadata reporting, array-based change statistics, interactive map UI, containers, tests, and CI. Pixel-level COG compositing and LLM-provider integration are documented extensions—not implied existing behavior.
 
 ## Why this project
