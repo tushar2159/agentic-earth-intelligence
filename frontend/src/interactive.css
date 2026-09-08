@@ -81,3 +81,20 @@
 
 .view-switch button {padding: 8px 12px;background: transparent;color: #91a9ba;font-size: 10px;white-space: nowrap}
 .view-switch button.active {background: #123c43;color: #eff8ff}
+
+.globe-time {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 10;
+  width: min(390px, calc(100% - 48px));
+  padding: 11px 14px;
+  transform: translateX(-50%);
+  border: 1px solid #31536b;
+  border-radius: 12px;
+  background: rgba(2, 9, 17, .92);
+}
+
+.globe-time div {display: flex;justify-content: space-between;gap: 10px;color: #91a9ba;font-size: 9px}
+.globe-time strong {color: #eff8ff;font-size: 9px;letter-spacing: .08em;text-transform: uppercase}
+.globe-time input {width: 100%;margin: 9px 0 0;accent-color: #62ead8}
