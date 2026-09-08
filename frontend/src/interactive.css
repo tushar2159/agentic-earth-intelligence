@@ -101,7 +101,7 @@
 .time-presets {display:grid!important;grid-template-columns:repeat(3,1fr);gap:6px!important;margin-top:8px}
 .time-presets button {padding:6px 8px;border:1px solid #29485d;border-radius:7px;background:#07131f;color:#b9cedb;font-size:9px}
 .time-presets button:hover {border-color:#62ead8;color:#fff}
-.layer-controls.globe-layers {top:auto;bottom:22px;left:22px;max-width:250px}
+.layer-controls.globe-layers {top:70px;bottom:auto;left:22px;max-width:270px}
 .legend.globe-legend {top: 70px;right: 22px;bottom: auto}
 
 @media (max-width: 760px) {
