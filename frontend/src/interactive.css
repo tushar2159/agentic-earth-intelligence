@@ -98,4 +98,13 @@
 .globe-time div {display: flex;justify-content: space-between;gap: 10px;color: #91a9ba;font-size: 9px}
 .globe-time strong {color: #eff8ff;font-size: 9px;letter-spacing: .08em;text-transform: uppercase}
 .globe-time input {width: 100%;margin: 9px 0 0;accent-color: #62ead8}
+.time-presets {display:grid!important;grid-template-columns:repeat(3,1fr);gap:6px!important;margin-top:8px}
+.time-presets button {padding:6px 8px;border:1px solid #29485d;border-radius:7px;background:#07131f;color:#b9cedb;font-size:9px}
+.time-presets button:hover {border-color:#62ead8;color:#fff}
+.layer-controls.globe-layers {top:auto;bottom:22px;left:22px;max-width:250px}
 .legend.globe-legend {top: 70px;right: 22px;bottom: auto}
+
+@media (max-width: 760px) {
+  .layer-controls.globe-layers {top:68px;bottom:auto;left:14px;right:14px;max-width:none}
+  .globe-time {bottom:18px;width:calc(100% - 28px)}
+}
