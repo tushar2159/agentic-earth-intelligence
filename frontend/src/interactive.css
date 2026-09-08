@@ -51,3 +51,33 @@
 
 .hover-card strong {color: #eff8ff;font-size: 13px}
 .hover-card span {color: #a9bfce;font-size: 11px;line-height: 1.5}
+
+.cesium-globe {
+  position: absolute;
+  inset: 8px;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.cesium-globe .cesium-viewer,
+.cesium-globe .cesium-viewer-cesiumWidgetContainer,
+.cesium-globe .cesium-widget,
+.cesium-globe canvas {width: 100%;height: 100%}
+.cesium-globe .cesium-viewer-bottom,.cesium-globe .cesium-viewer-toolbar{display:none!important}
+
+.view-switch {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  gap: 5px;
+  padding: 5px;
+  transform: translateX(-50%);
+  border: 1px solid #31536b;
+  border-radius: 11px;
+  background: rgba(2, 9, 17, .92);
+}
+
+.view-switch button {padding: 8px 12px;background: transparent;color: #91a9ba;font-size: 10px;white-space: nowrap}
+.view-switch button.active {background: #123c43;color: #eff8ff}

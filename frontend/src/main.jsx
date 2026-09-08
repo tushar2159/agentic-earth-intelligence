@@ -93,8 +93,21 @@ async function route(prompt) {
 }
 
 function App() {
-  const beforeNode = useRef(null); const afterNode = useRef(null); const maps = useRef([]); const pending = useRef(null); const layerState = useRef({basemap: true, imagery: true, footprints: true, observations: true});
-  const [prompt, setPrompt] = useState(EXAMPLES[0]); const [running, setRunning] = useState(false); const [result, setResult] = useState(null); const [error, setError] = useState(""); const [swipe, setSwipe] = useState(50); const [layers, setLayers] = useState(layerState.current); const [hoverInfo, setHoverInfo] = useState(null);
+  const beforeNode = useRef(null); const afterNode = useRef(null); const globeNode = useRef(null); const maps = useRef([]); const globe = useRef(null); const globeAnalysisLayer = useRef(null); const pending = useRef(null); const layerState = useRef({basemap: true, imagery: true, footprints: true, observations: true});
+  const [prompt, setPrompt] = useState(EXAMPLES[0]); const [running, setRunning] = useState(false); const [result, setResult] = useState(null); const [error, setError] = useState(""); const [swipe, setSwipe] = useState(50); const [layers, setLayers] = useState(layerState.current); const [hoverInfo, setHoverInfo] = useState(null); const [viewMode, setViewMode] = useState("2d");
+
+  function drawGlobe(next) {
+    const Cesium = window.Cesium; const viewer = globe.current; if (!Cesium || !viewer) return;
+    viewer.entities.removeAll();
+    if (globeAnalysisLayer.current) { viewer.imageryLayers.remove(globeAnalysisLayer.current, true); globeAnalysisLayer.current = null; }
+    if (next.afterRasterUrl) globeAnalysisLayer.current = viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({url: next.afterRasterUrl, credit: new Cesium.Credit("Analytical raster")}));
+    next.features.forEach((feature, index) => {
+      if (feature.geometry?.type === "Point") viewer.entities.add({id:`result-${index}`,position:Cesium.Cartesian3.fromDegrees(feature.geometry.coordinates[0],feature.geometry.coordinates[1],120),point:{pixelSize:13,color:Cesium.Color.fromCssColorString(feature.properties?.mag ? "#ff624d" : "#62ead8"),outlineColor:Cesium.Color.WHITE,outlineWidth:2,disableDepthTestDistance:Number.POSITIVE_INFINITY},label:{text:feature.properties?.title || feature.properties?.place || "LIVE RESULT",font:"700 11px sans-serif",showBackground:true,backgroundColor:Cesium.Color.fromCssColorString("#03101b").withAlpha(.85),pixelOffset:new Cesium.Cartesian2(0,-28),disableDepthTestDistance:Number.POSITIVE_INFINITY}});
+      if (["Polygon","MultiPolygon"].includes(feature.geometry?.type)) { const ring = feature.geometry.type === "Polygon" ? feature.geometry.coordinates[0] : feature.geometry.coordinates[0][0]; viewer.entities.add({id:`result-${index}`,polygon:{hierarchy:Cesium.Cartesian3.fromDegreesArray(ring.flat()),material:Cesium.Color.fromCssColorString("#62ead8").withAlpha(.08),outline:true,outlineColor:Cesium.Color.fromCssColorString("#ffcc66")}}); }
+    });
+    const destination = next.bbox ? Cesium.Rectangle.fromDegrees(...next.bbox) : Cesium.Cartesian3.fromDegrees(next.center[0],next.center[1],1800000);
+    viewer.camera.flyTo({destination,duration:2.2});
+  }
 
   function applyVisibility() {
     const ids = {basemap: "satellite", imagery: "analysis-raster", footprints: "result-lines", observations: "result-points"};
@@ -117,6 +130,7 @@ function App() {
       item.addLayer({id: "result-points", type: "circle", source: "results", filter: ["==", ["geometry-type"], "Point"], paint: {"circle-color": ["case", ["has", "mag"], "#ff624d", "#62ead8"], "circle-radius": ["case", ["has", "mag"], ["interpolate", ["linear"], ["get", "mag"], 2.5, 5, 7, 22], 11], "circle-stroke-color": "white", "circle-stroke-width": 1.5, "circle-opacity": 0.9}});
     });
     applyVisibility();
+    drawGlobe(next);
     const primary = maps.current[0]; next.bbox ? primary.fitBounds([[next.bbox[0], next.bbox[1]], [next.bbox[2], next.bbox[3]]], {padding: 45, duration: 900}) : primary.flyTo({center: next.center, zoom: next.zoom, duration: 900});
   }
 
@@ -137,17 +151,28 @@ function App() {
     });
     return () => { beforeMap.remove(); afterMap.remove(); };
   }, []);
+  useEffect(() => {
+    const Cesium = window.Cesium; if (!Cesium) return;
+    Cesium.Ion.defaultAccessToken = undefined;
+    const viewer = new Cesium.Viewer(globeNode.current,{baseLayer:false,terrainProvider:new Cesium.EllipsoidTerrainProvider(),animation:false,timeline:false,baseLayerPicker:false,geocoder:false,homeButton:false,sceneModePicker:false,navigationHelpButton:false,fullscreenButton:false,selectionIndicator:false,infoBox:false});
+    viewer.scene.globe.enableLighting=false; viewer.scene.globe.showGroundAtmosphere=true; viewer.scene.skyAtmosphere.show=true;
+    viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({url:"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",credit:new Cesium.Credit("Imagery © Esri"),maximumLevel:19}));
+    viewer.camera.setView({destination:Cesium.Cartesian3.fromDegrees(55,18,17000000),orientation:{heading:0,pitch:Cesium.Math.toRadians(-90),roll:0}});
+    viewer.clock.shouldAnimate=true; viewer.clock.onTick.addEventListener(()=>viewer.camera.rotate(Cesium.Cartesian3.UNIT_Z,-0.00018)); globe.current=viewer; if(pending.current)drawGlobe(pending.current);
+    return ()=>{viewer.destroy();globe.current=null;};
+  }, []);
+  useEffect(()=>{if(viewMode==="3d")setTimeout(()=>globe.current?.resize(),0);},[viewMode]);
   useEffect(() => { run(EXAMPLES[0]); }, []);
   async function run(value) { setRunning(true); setError(""); try { const next = await route(value); setResult(next); draw(next); } catch (caught) { setError(caught.message); } finally { setRunning(false); } }
 
   return <main>
     <header><div className="mark">AE</div><div><strong>Agentic Earth Intelligence</strong><span>Live public-data intelligence</span></div><a href="https://github.com/tushar2159/agentic-earth-intelligence">GitHub ↗</a></header>
     <section className="hero"><div className="copy"><p className="eyebrow">ASK ACROSS DOMAINS</p><h1>Ask Earth.<br/><span>See the answer.</span></h1><p>Route natural-language questions to live Earth observation, weather, air-quality and earthquake services, then visualize the evidence.</p><form onSubmit={event => {event.preventDefault(); run(prompt);}}><label htmlFor="prompt">Question</label><textarea id="prompt" value={prompt} onChange={event => setPrompt(event.target.value)}/><div className="examples">{EXAMPLES.map(item => <button type="button" key={item} title={item} onClick={() => {setPrompt(item); run(item);}}>{item}</button>)}</div><button className="analyze" disabled={running}>{running ? "Querying live providers…" : "Analyze live data"}</button></form>{error && <p className="error">{error}</p>}</div>
-      <div className="map-shell"><div className="comparison"><div ref={beforeNode} className="map compare-map"/><div ref={afterNode} className="map compare-map after-map" style={{clipPath: result?.comparison ? `inset(0 0 0 ${swipe}%)` : "none"}}/></div>
-        {result?.comparison && <><div className="map-dates"><span>{result.baselineLabel} BASELINE</span><span>{result.comparisonLabel} COMPARISON</span></div><input className="compare-range" type="range" min="0" max="100" value={swipe} onChange={event => setSwipe(Number(event.target.value))} aria-label="Compare baseline and comparison imagery"/><div className="compare-line" style={{left: `${swipe}%`}}><i>↔</i></div></>}
-        <div className="layer-controls"><strong>LAYERS</strong>{Object.entries(layers).map(([key, enabled]) => <button className={enabled ? "active" : ""} type="button" key={key} onClick={() => toggleLayer(key)}>{enabled ? "✓" : "○"} {key}</button>)}</div>
+      <div className="map-shell"><div className="view-switch"><button className={viewMode === "2d" ? "active" : ""} onClick={()=>setViewMode("2d")}>2D Analysis</button><button className={viewMode === "3d" ? "active" : ""} onClick={()=>setViewMode("3d")}>3D Globe</button></div><div className="comparison" hidden={viewMode !== "2d"}><div ref={beforeNode} className="map compare-map"/><div ref={afterNode} className="map compare-map after-map" style={{clipPath: result?.comparison ? `inset(0 0 0 ${swipe}%)` : "none"}}/></div><div ref={globeNode} className="cesium-globe" hidden={viewMode !== "3d"}/>
+        {viewMode === "2d" && result?.comparison && <><div className="map-dates"><span>{result.baselineLabel} BASELINE</span><span>{result.comparisonLabel} COMPARISON</span></div><input className="compare-range" type="range" min="0" max="100" value={swipe} onChange={event => setSwipe(Number(event.target.value))} aria-label="Compare baseline and comparison imagery"/><div className="compare-line" style={{left: `${swipe}%`}}><i>↔</i></div></>}
+        {viewMode === "2d" && <div className="layer-controls"><strong>LAYERS</strong>{Object.entries(layers).map(([key, enabled]) => <button className={enabled ? "active" : ""} type="button" key={key} onClick={() => toggleLayer(key)}>{enabled ? "✓" : "○"} {key}</button>)}</div>}
         {hoverInfo && <div className="hover-card"><strong>{hoverInfo.title}</strong><span>{hoverInfo.detail}</span></div>}
-        <div className="legend"><strong>MAP EVIDENCE</strong>{result?.comparison && <><span><i className="swatch raster"/>Sentinel-2 COG</span><span><i className="swatch scene"/>Scene footprint</span></>}{result?.domain === "earthquakes" ? <span><i className="swatch quake"/>Earthquake magnitude</span> : !result?.comparison && <span><i className="swatch point"/>Live observation</span>}<small>Hover features for details{result?.comparison ? " · drag the center slider" : ""}</small></div><span className="map-label">XYZ SATELLITE · INTERACTIVE LIVE LAYERS</span>
+        <div className="legend"><strong>{viewMode === "3d" ? "3D INTELLIGENCE" : "MAP EVIDENCE"}</strong>{result?.comparison && <><span><i className="swatch raster"/>Analytical raster</span><span><i className="swatch scene"/>Scene footprint</span></>}{result?.domain === "earthquakes" ? <span><i className="swatch quake"/>Earthquake magnitude</span> : !result?.comparison && <span><i className="swatch point"/>Live observation</span>}<small>{viewMode === "3d" ? "Drag to orbit · scroll to zoom" : `Hover features for details${result?.comparison ? " · drag the center slider" : ""}`}</small></div><span className="map-label">{viewMode === "3d" ? "CESIUM 3D · AUTO ORBIT" : "XYZ SATELLITE · INTERACTIVE LIVE LAYERS"}</span>
       </div></section>
     <section className="results"><article><span>EXECUTION TRACE</span><h2>{result?.title || (running ? "Running analysis" : "Ready")}</h2><div className="timeline">{(result?.trace || ["Interpret question", "Select capability", "Retrieve live context", "Visualize evidence"]).map((item, index) => <div key={item}><b>{String(index + 1).padStart(2, "0")}</b><p>{item}</p></div>)}</div></article><article><span>LIVE ANSWER</span><h2>{result?.domain?.replace("-", " ") || "Awaiting data"}</h2><p>{result?.summary || "The change comparison starts automatically."}</p>{result?.metrics && <div className="metrics">{result.metrics.map(([label, value]) => <div key={label}><b>{value}</b><span>{label}</span></div>)}</div>}<small>{result ? `${result.cached ? "CACHED RESULT" : "LIVE RESULT"} · 15-MINUTE TRAFFIC-AWARE CACHE` : "INTELLIGENCE WORKSPACE"}</small></article></section>
   </main>;
