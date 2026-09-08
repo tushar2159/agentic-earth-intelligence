@@ -98,3 +98,4 @@
 .globe-time div {display: flex;justify-content: space-between;gap: 10px;color: #91a9ba;font-size: 9px}
 .globe-time strong {color: #eff8ff;font-size: 9px;letter-spacing: .08em;text-transform: uppercase}
 .globe-time input {width: 100%;margin: 9px 0 0;accent-color: #62ead8}
+.legend.globe-legend {top: 70px;right: 22px;bottom: auto}
