@@ -38,7 +38,7 @@ jobs:
       - run: npm install
       - run: npm run build
       - run: docker build -t agentic-earth-dashboard:test .
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         if: github.event_name == 'push'
         with:
           path: frontend/dist
